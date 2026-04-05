@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Tower Stack — Вся стройка уходит вниз при добавлении блока</title>
+<style>
+  body {
+    margin: 0;
+    background: #0a1f2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+  }
+  canvas { 
+    image-rendering: crisp-edges; 
+    box-shadow: 0 0 40px rgba(0,0,0,0.7); 
+    border-radius: 8px; 
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game" width="400" height="650"></canvas>
+
+<script>
+// ============== НАСТРОЙКИ ==============
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const BLOCK_HEIGHT = 32;
+let score = 0;
+let gameOver = false;
+let gameStarted = false;
+
+let tower = [];
+let blockOffsets = [];
+
+let currentBlock = {
+  x: 0, y: 0, width: 180,
+  speed: 3.8,
+  direction: 1,
+  color: '#ff4d4d',
+  dropping: false,
+  dropVelocity: 0
+};
+
+let towerOffsetY = 0;
+
+// ============== ИНИЦИАЛИЗАЦИЯ ==============
+function initTower() {
+  tower = [];
+  blockOffsets = [];
+  score = 0;
+  towerOffsetY = 0;
+
+  tower.push({ 
+    x: canvas.width/2 - 90, 
+    y: canvas.height - 110, 
+    width: 180, 
+    color: '#7bed9f' 
+  });
+  blockOffsets.push(0);
+
+  for (let i = 1; i < 4; i++) {
+    tower.push({
+      x: canvas.width/2 - 85 + i*4,
+      y: canvas.height - 110 - BLOCK_HEIGHT * i,
+      width: 170 - i*12,
+      color: '#7bed9f'
+    });
+    blockOffsets.push(0);
+  }
+
+  resetCurrentBlock();
+}
+
+function resetCurrentBlock() {
+  currentBlock.width = Math.max(55, tower[tower.length - 1].width * 0.93);
+  currentBlock.x = canvas.width / 2 - currentBlock.width / 2;
+  currentBlock.y = 160;                    // фиксированная стартовая высота
+  currentBlock.speed = 3.8 + score * 0.12;
+  currentBlock.direction = Math.random() > 0.5 ? 1 : -1;
+  currentBlock.dropping = false;
+  currentBlock.dropVelocity = 0;
+  currentBlock.color = `hsl(${185 + score * 8}, 90%, 63%)`;
+}
+
+// ============== ЛОГИКА ==============
+function dropBlock() {
+  if (gameOver || !gameStarted || currentBlock.dropping) return;
+  currentBlock.dropping = true;
+  currentBlock.dropVelocity = 0;
+}
+
+function update() {
+  if (!gameStarted || gameOver) return;
+
+  if (!currentBlock.dropping) {
+    currentBlock.x += currentBlock.speed * currentBlock.direction;
+
+    if (currentBlock.x <= 15) { 
+      currentBlock.x = 15; 
+      currentBlock.direction = 1; 
+    }
+    if (currentBlock.x + currentBlock.width >= canvas.width - 15) {
+      currentBlock.x = canvas.width - 15 - currentBlock.width;
+      currentBlock.direction = -1;
+    }
+  } 
+  else {
+    currentBlock.dropVelocity += 0.68;
+    currentBlock.y += currentBlock.dropVelocity;
+
+    const targetY = tower[tower.length - 1].y - BLOCK_HEIGHT;
+
+    if (currentBlock.y >= targetY) {
+      currentBlock.y = targetY;
+
+      const top = tower[tower.length - 1];
+      const overlap = Math.max(0, 
+        Math.min(currentBlock.x + currentBlock.width, top.x + top.width) - 
+        Math.max(currentBlock.x, top.x)
+      );
+
+      if (overlap <= 8) {
+        gameOver = true;
+        return;
+      }
+
+      tower.push({
+        x: Math.max(currentBlock.x, top.x),
+        y: targetY,
+        width: Math.min(overlap, top.width),
+        color: currentBlock.color
+      });
+      blockOffsets.push(0);
+
+      score++;
+
+      // Смещение блоков при ударе
+      const pushForce = (currentBlock.x - top.x) * 0.32;
+      for (let i = 0; i < tower.length - 1; i++) {
+        blockOffsets[i] += pushForce * (0.72 ** (tower.length - 1 - i));
+      }
+
+      // Удаляем нижний блок, если больше 5
+      if (tower.length > 5) {
+        tower.shift();
+        blockOffsets.shift();
+      }
+
+      // === ВСЯ СТРОЙКА СРАЗУ УХОДИТ ВНИЗ при добавлении блока ===
+      const desiredTopY = canvas.height * 0.48;   // верхушка всегда примерно здесь (чуть ниже половины)
+      const currentTopY = tower[tower.length - 1].y;
+      
+      if (currentTopY < desiredTopY) {
+        const bigShift = desiredTopY - currentTopY + 35;
+        towerOffsetY += bigShift;
+
+        // Сдвигаем все существующие блоки вниз на эту величину
+        for (let block of tower) {
+          block.y += bigShift;
+        }
+      }
+
+      resetCurrentBlock();
+    }
+  }
+
+  // Плавное затухание
+  for (let i = 0; i < blockOffsets.length; i++) {
+    blockOffsets[i] *= 0.86;
+  }
+  towerOffsetY *= 0.88;
+}
+
+// ============== РЕНДЕР ==============
+function draw() {
+  ctx.fillStyle = '#0b2b4a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  sky.addColorStop(0, '#1e5a9e');
+  sky.addColorStop(1, '#0b2b4a');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  ctx.translate(0, towerOffsetY);
+
+  for (let i = 0; i < tower.length; i++) {
+    const block = tower[i];
+    const offsetX = blockOffsets[i] || 0;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(block.x + offsetX + 6, block.y + 8, block.width, BLOCK_HEIGHT);
+
+    ctx.fillStyle = block.color;
+    ctx.fillRect(block.x + offsetX, block.y, block.width, BLOCK_HEIGHT);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fillRect(block.x + offsetX, block.y, block.width, 6);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fillRect(block.x + offsetX, block.y + BLOCK_HEIGHT - 4, block.width, 4);
+  }
+
+  // Подсказка линии
+  if (!gameOver && tower.length > 0) {
+    const targetY = tower[tower.length - 1].y - BLOCK_HEIGHT;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([12, 8]);
+    ctx.beginPath();
+    ctx.moveTo(25, targetY);
+    ctx.lineTo(canvas.width - 25, targetY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  if (!gameOver) {
+    ctx.fillStyle = currentBlock.color;
+    ctx.fillRect(currentBlock.x, currentBlock.y, currentBlock.width, BLOCK_HEIGHT);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fillRect(currentBlock.x, currentBlock.y, currentBlock.width, 6);
+  }
+
+  ctx.restore();
+
+  // Счёт
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 52px Arial';
+  ctx.textAlign = 'center';
+  ctx.shadowBlur = 12;
+  ctx.fillText(score.toString(), canvas.width/2, 85);
+  ctx.shadowBlur = 0;
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 46px Arial';
+    ctx.fillText('GAME OVER', canvas.width/2, canvas.height/2 - 40);
+    ctx.font = '26px Arial';
+    ctx.fillText(`Счёт: ${score}`, canvas.width/2, canvas.height/2 + 25);
+    ctx.font = '20px Arial';
+    ctx.fillText('ПРОБЕЛ или клик — заново', canvas.width/2, canvas.height/2 + 85);
+  }
+
+  if (!gameStarted && !gameOver) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '24px Arial';
+    ctx.fillText('НАЖМИ ПРОБЕЛ ИЛИ КЛИКНИ', canvas.width/2, canvas.height - 90);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function handleInput() {
+  if (gameOver) {
+    initTower();
+    gameOver = false;
+    gameStarted = true;
+  } else if (!gameStarted) {
+    gameStarted = true;
+  } else {
+    dropBlock();
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { 
+    e.preventDefault(); 
+    handleInput(); 
+  }
+});
+
+canvas.addEventListener('click', handleInput);
+canvas.addEventListener('touchstart', e => { 
+  e.preventDefault(); 
+  handleInput(); 
+});
+
+initTower();
+loop();
+
+</script>
+
+</body>
+</html>
